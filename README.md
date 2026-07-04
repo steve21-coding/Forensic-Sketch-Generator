@@ -1,21 +1,36 @@
-# 🔴 Forensic Sketch Generator — Automated Composite Synthesis & Matching System
+# Forensic Sketch Generator Pipeline
 
-The Forensic Sketch Generator is an end-to-end forensic pipeline designed to bridge the gap between human memory and criminal databases. The system accepts a casual natural language description from a witness, synthesizes a high-fidelity suspect composite using generative AI, and immediately executes a hybrid biometric and semantic search against a database of mugshots to rank potential suspects in seconds.
+An enterprise-grade, decoupled forensic composite synthesis and facial biometric matching pipeline. The system accepts natural language witness descriptions, synthesizes high-fidelity suspect portraits using Stable Diffusion XL (SDXL), extracts semantic facial components using BiSeNet, and executes real-time vector similarity matching against a facial database utilizing a FAISS index.
 
-## 🚀 Key Features
-* **AI Composite Generation:** Leverages **Stable Diffusion XL (Juggernaut-XL-v9)** to synthesize realistic, front-facing police-style portraits from witness prompts.
-* **Semantic Facial Parsing:** Uses **BiSeNet** to extract exact facial traits like skin tone (HSV), hair color (RGB), and facial hair presence.
-* **Biometric Re-ranking:** Deploys **InsightFace** for deep face embeddings combined with a **FAISS** vector index to calculate final similarity scores.
-* **Interactive Dashboard:** A sleek, responsive dark/light mode UI designed for forensic operators to manage the entire generation and search flow.
+## 1. Architectural Overview
 
-## 📁 Directory Structure
+The application is engineered using modular software design principles, strictly separating web network configurations, data contracts, and heavy machine learning inference states. 
+
+
+
+* **State Isolation (Singleton Pattern):** Heavy model weights (SDXL, InsightFace, BiSeNet) are managed via a centralized configuration registry. Memory allocation occurs exactly once upon ASGI server boot via FastAPI lifespan context handlers, mitigating runtime race conditions and memory leaks during concurrent traffic.
+* **Environment Agnostic Fallback (Defensive Design):** The services layer features an automated hardware verification mechanism (`torch.cuda.is_available()`). On standard development systems lacking a CUDA-accelerated GPU, the application transparently activates an intelligent Mock Engine to facilitate local end-to-end smoke tests without environment failures.
+* **Global Error Interception:** Custom domain exceptions (e.g., `FaceNotFoundError`, `IndexNotBuiltError`) are isolated from core business logic. A global HTTP exception handler captures errors at the middleware layer, translating system failures into pristine, structured JSON response payloads mapped to explicit HTTP status codes ($400\text{ Bad Request}$, $503\text{ Service Unavailable}$).
+
+---
+
+## 2. Repository Structure
+
 ```text
 Forensic Sketch Generator/
 ├── backend/
-│   └── fastapi_backend.py     # FastAPI REST API wrapper for the ML models
+│   ├── config.py              # Singleton Model Registry & application lifecycle manager
+│   ├── errors.py              # Custom domain exceptions & global error interceptors
+│   ├── main.py                # FastAPI routing controller & application entry point
+│   ├── schemas.py             # Pydantic data validation & type coercion models
+│   └── services.py            # ML inference, semantic parsing, & FAISS vector operations
 ├── frontend/
-│   └── index.html             # Interactive dashboard frontend
+│   └── index.html             # High-fidelity operator control dashboard
+├── mock_database/             # Resolution-optimized synthetic suspect tracking images
+│   ├── suspect_01.jpg
+│   ├── suspect_02.jpg
+│   └── suspect_03.jpg
 ├── notebooks/
-│   └── colab_setup.ipynb      # Google Colab environment orchestration script
-├── .gitignore                 # Files excluded from version control
-└── README.md                  # Project documentation
+│   └── colab_setup.ipynb      # Cloud-based GPU infrastructure provisioning notebook
+├── .gitignore                 # Excludes raw model checkpoints, local datasets, and caches
+└── README.md                  # Comprehensive technical documentation
