@@ -1,0 +1,19 @@
+# Python bytecode and runtime caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local environment/IDE settings
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Exclude universally named forensic output sketches
+backend/forensic_sketch_generator_outputs/
+
+# Exclude the heavy, local production database weights/images
+backend/idoc_front_1000/
+local_mugshots/
+*.pth
+*.onnx
