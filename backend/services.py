@@ -1,5 +1,6 @@
 import os, sys, uuid, base64
 import cv2, numpy as np, faiss, torch
+from PIL import Image, ImageDraw
 from torchvision.transforms.functional import to_tensor
 from backend.errors import FaceNotFoundError, IndexNotBuiltError
 from backend.config import models_singleton as models
@@ -8,11 +9,13 @@ from backend.config import models_singleton as models
 index = None
 db_metadata = []
 
+
 # ─── EXTRACTION LOGIC ────────────────────────────────────────────────────────
 def get_mask_color(img_rgb, mask, label_id):
     pixels = img_rgb[mask == label_id]
     if len(pixels) < 10: return None
     return np.mean(pixels, axis=0).astype(int).tolist()
+
 
 def get_mask_color_hsv(img_bgr, mask, label_id):
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
@@ -20,15 +23,17 @@ def get_mask_color_hsv(img_bgr, mask, label_id):
     if len(pixels) < 10: return None
     return np.mean(pixels[:, :2], axis=0).astype(int).tolist()
 
+
 def get_hsv_similarity(hsv1, hsv2):
     if hsv1 is None or hsv2 is None: return 0.5
     dst = np.linalg.norm(np.array(hsv1) - np.array(hsv2))
     return max(0.0, 1 - (dst / 312.0))
 
+
 def parse_face(img_bgr):
     if models.is_mocked:
         return None, [20, 150], [40, 30, 20], False
-        
+
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
     img_resized = cv2.resize(img_rgb, (512, 512))
     inp = to_tensor(img_resized).unsqueeze(0).cuda()
@@ -41,19 +46,21 @@ def parse_face(img_bgr):
     has_beard = bool(np.sum(mask == 11) > 500)
     return mask, skin_hsv, hair_rgb, has_beard
 
+
 def img_to_b64(path: str) -> str:
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode()
 
+
 def generate_composite_image(prompt: str, steps: int, guidance: float, output_dir: str) -> str:
     fname = f"suspect_{uuid.uuid4().hex[:8]}.png"
     fpath = os.path.join(output_dir, fname)
-    
+
     if models.is_mocked:
         img = Image.new('RGB', (832, 1216), color=(128, 128, 128))
-        from PIL import ImageDraw
         d = ImageDraw.Draw(img)
-        d.text((100,100), "MOCK SKETCH GENERATION (CPU)", fill=(255,255,255))
+        d.text((100, 100), "MOCK SKETCH GENERATION (CPU)", fill=(255, 255, 255))
+        d.text((100, 130), f"prompt: {prompt[:60]}", fill=(220, 220, 220))
         img.save(fpath)
         return fname
 
@@ -62,12 +69,17 @@ def generate_composite_image(prompt: str, steps: int, guidance: float, output_di
         "Plain grey background, harsh flat lighting, raw photography, hyper-realistic, police photography style."
     )
     neg = "cgi, 3d, render, cartoon, anime, illustration, painting, blurry, smile, hat, sunglasses"
-    
-    image = models.pipe(prompt=forensic_prompt, negative_prompt=neg, num_inference_steps=steps, guidance_scale=guidance, width=832, height=1216).images[0]
+
+    image = models.pipe(
+        prompt=forensic_prompt, negative_prompt=neg,
+        num_inference_steps=steps, guidance_scale=guidance,
+        width=832, height=1216
+    ).images[0]
     image.save(fpath)
     return fname
 
-def execute_vector_search(image_b64: str, k: int) -> dict:
+
+def execute_vector_search(image_b64: str, k: int):
     global index, db_metadata
     if index is None or len(db_metadata) == 0:
         raise IndexNotBuiltError()
@@ -80,14 +92,14 @@ def execute_vector_search(image_b64: str, k: int) -> dict:
 
     if models.is_mocked:
         return "Male", 35, [{
-            "rank": i+1, "suspect_id": m["suspect_id"], "final_score": 0.15, "bio_dist": 0.05,
+            "rank": i + 1, "suspect_id": m["suspect_id"], "final_score": 0.15, "bio_dist": 0.05,
             "skin_match": 95.0, "hair_match": 92.0, "gender": m["gender"], "local_path": m["local_path"]
         } for i, m in enumerate(db_metadata[:k])]
 
     faces = models.fa_app.get(img_bgr)
     if not faces:
         raise FaceNotFoundError()
-        
+
     face_vec = faces[0].normed_embedding
     gender = "Male" if faces[0].gender == 1 else "Female"
     age = int(faces[0].age)
@@ -103,11 +115,11 @@ def execute_vector_search(image_b64: str, k: int) -> dict:
         hair_sim  = get_hsv_similarity(hair_rgb,  m.get('hair_rgb'))
         bio_dist  = float(distances[0][i])
 
-        skin_penalty  = (1 - skin_sim) * 3.0
-        beard_penalty = 0.6 if (has_beard and not m.get('has_beard')) else 0.0
-        hair_penalty  = (1 - hair_sim)  * 2.0
+        skin_penalty   = (1 - skin_sim) * 3.0
+        beard_penalty  = 0.6 if (has_beard and not m.get('has_beard')) else 0.0
+        hair_penalty   = (1 - hair_sim) * 2.0
         gender_penalty = 0.5 if (gender != m.get('gender', gender)) else 0.0
-        final_score   = bio_dist + skin_penalty + beard_penalty + hair_penalty + gender_penalty
+        final_score    = bio_dist + skin_penalty + beard_penalty + hair_penalty + gender_penalty
 
         results.append({
             "rank": i + 1, "suspect_id": m.get('suspect_id', f'UNK-{idx:05d}'), "final_score": round(final_score, 3),
